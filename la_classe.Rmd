@@ -1,0 +1,72 @@
+---
+title: "La classe"
+author: "Eugene"
+date: "10/26/2020"
+output: html_document
+---
+## Loading the data
+
+```{r, echo=TRUE}
+training <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+testing <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+library(caret)
+```
+
+## Parallel implementation of Random Forest
+
+```{r, echo = TRUE}
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+
+fitControl <- trainControl(method = "cv",
+                           number = 5,
+                           allowParallel = TRUE)
+```
+
+## Subsetting the training data
+
+In order to narrow down the data set to the most useful predictors, several steps were taken. First of all, time-based data and identifiers were removed. Next, rows containing summary information for each window were removed, as these do not appear in the final prediction data set. Next, columns with descriptive statistics were removed, namely those containing "avg", "total", "min", "max", "stddev", "var", "amplitude", "skewness" and "kurtosis". These are simply derived data from the raw information, and also contain many missing values. Finally, we can remove any columns with information pertaining to the windows, as they do not help in the prediction.
+
+```{r, echo=TRUE}
+training1 <- training[,-(1:5)]
+training2 <- training1[training1$new_window == "no",]
+summary <- c(grep('avg|total|min|max|stddev|var|amplitude|skewness|kurtosis', names(training2)))
+training3 <- training2[,-summary]
+training3 <- training3[,-(1:2)]
+```
+
+## Cross-validation
+
+The training data set was separated into a training and a validation set. The random forests model was trained using the new training set.
+
+```{r, echo=TRUE}
+inTrain = createDataPartition(training3$classe, p = 3/4)[[1]]
+newtraining = training3[ inTrain,]
+newtesting = training3[ -inTrain,]
+model1 <- train(classe~., data = newtraining, method = "rf", trControl = fitControl, ntree = 10)
+
+stopCluster(cluster)
+registerDoSEQ()
+```
+
+```{r, echo=TRUE}
+newtesting$classe <- as.factor(newtesting$classe)
+predict1 <- predict(model1, newtesting[,-49])
+con1 <- confusionMatrix(predict1, newtesting$classe)
+print(con1)
+```
+The out of sample error is estimated to be 0.0131.
+
+## Predicting for testing data set
+```{r, echo=TRUE}
+testing <- testing[,-(1:5)]
+testing <- testing[testing$new_window == "no",]
+summary <- c(grep('avg|total|min|max|stddev|var|amplitude|skewness|kurtosis', names(testing)))
+testing <- testing[,-summary]
+testing <- testing[,-(1:2)]
+testing <- testing[,-49]
+predict2 <- predict(model1, testing)
+print(predict2)
+```
